@@ -1,0 +1,11 @@
+@echo off
+cd /d C:\Users\NASEER PC\Desktop\whatsapp-bot
+
+:: Start Flask on port 5000
+start cmd /k "python app.py"
+
+:: Wait a bit for Flask to start
+timeout /t 5 >nul
+
+:: Start ngrok tunnel
+start cmd /k "C:\Users\NASEER PC\ngrok\ngrok.exe http 5000"
