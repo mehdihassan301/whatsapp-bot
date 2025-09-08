@@ -1,36 +1,22 @@
-from flask import Flask, request, jsonify
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
+from flask import Flask, request
+import requests
 import os
 
 app = Flask(__name__)
 
-# ---------------------------
-# Twilio Config
-# ---------------------------
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
-TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
-client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+# ==============================
+# 🔑 WhatsApp Cloud API Settings
+# ==============================
+VERIFY_TOKEN = "probsolv_2025_secret"  # You choose this (must match Meta portal)
+WHATSAPP_ACCESS_TOKEN = "EAAKxZAvmtQpsBPfDKQl7lFeIKHy4XEZCQhiEXoXRbZAZCgTTYhe3ZBjEe3kUFEsZBoKoRZCRffFZBhvUOKW9rTaHahKGIwjf30ijBZA5ipnnFMSaLXb1VfmeR1nOa9zLxpKwspVU3nBeyr9bHZBrgrloCAk6ZARDYEggEUZCoFwfqj1by68znIaehQb3TSZAHZCNTLa5NRD7PzReERvpErEXlOBopjdnpjTLFkxupEvVQKXzKLH7W6HQZDZD"
+PHONE_NUMBER_ID = "768273019710136"
+RECIPIENT_WA_NUMBER = "923272583013"  # Your WhatsApp number
+# ==============================
 
-# ---------------------------
-# Meta (Cloud API) Config
-# ---------------------------
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_verify_token")  
-# 👆 You can set this in Railway → Variables (make it match the token you set in Meta Developer Portal)
-
-# ---------------------------
-# Routes
-# ---------------------------
-
-@app.route("/")
-def home():
-    return "🚀 WhatsApp Bot is running!"
-
-# ---- Meta Cloud API Webhook Verification ----
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    if request.method == "GET":  # Verification (Meta)
+    if request.method == "GET":
+        # Meta webhook verification
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
         challenge = request.args.get("hub.challenge")
@@ -38,56 +24,47 @@ def webhook():
         if mode == "subscribe" and token == VERIFY_TOKEN:
             return challenge, 200
         else:
-            return "❌ Verification failed", 403
+            return "Verification failed", 403
 
-    elif request.method == "POST":  # Handle incoming messages (Twilio or Meta)
-        data = request.get_json(silent=True)
+    if request.method == "POST":
+        data = request.get_json()
+        print("📩 Incoming:", data)
 
-        # ---------------------------
-        # Case 1: Twilio Incoming Message
-        # ---------------------------
-        if request.form:  
-            incoming_msg = request.form.get("Body", "").lower()
-            response = MessagingResponse()
-            msg = response.message()
+        # Extract message text (if exists)
+        try:
+            message = data["entry"][0]["changes"][0]["value"]["messages"][0]
+            from_number = message["from"]
+            msg_body = message["text"]["body"]
 
-            if "hello" in incoming_msg:
-                msg.body("👋 Hello! How can I help you today?")
-            else:
-                msg.body("🤖 I'm a bot powered by Twilio + Flask!")
+            print(f"Message from {from_number}: {msg_body}")
 
-            return str(response)
+            # Send reply
+            send_whatsapp_message(from_number, f"✅ I received your message: {msg_body}")
+        except Exception as e:
+            print("❌ Error handling message:", e)
 
-        # ---------------------------
-        # Case 2: Meta Cloud API Incoming Message
-        # ---------------------------
-        if data and "entry" in data:
-            for entry in data["entry"]:
-                for change in entry.get("changes", []):
-                    value = change.get("value", {})
-                    messages = value.get("messages", [])
-                    for message in messages:
-                        from_number = message["from"]
-                        text = message.get("text", {}).get("body", "")
+        return "EVENT_RECEIVED", 200
 
-                        # Example: reply using Twilio
-                        client.messages.create(
-                            from_=f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
-                            body=f"You said: {text}",
-                            to=f"whatsapp:{from_number}"
-                        )
-            return jsonify({"status": "received"}), 200
 
-        return "ok", 200
+def send_whatsapp_message(to, message):
+    """Send WhatsApp message via Cloud API"""
+    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "text": {"body": message}
+    }
 
-# ---------------------------
-# Run app
-# ---------------------------
+    r = requests.post(url, headers=headers, json=payload)
+    print("📤 Sent reply:", r.status_code, r.text)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
-if __name__ == "__main__":
-    # Bind to 0.0.0.0 for cloud deployment
-    app.run(host="0.0.0.0", port=5000)
 
 
