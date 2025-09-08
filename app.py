@@ -1,35 +1,90 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from twilio.twiml.messaging_response import MessagingResponse
-import logging
+from twilio.rest import Client
+import os
 
 app = Flask(__name__)
 
-# Enable logging
-logging.basicConfig(level=logging.INFO)
+# ---------------------------
+# Twilio Config
+# ---------------------------
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.environ.get("TWILIO_WHATSAPP_NUMBER")
+client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
-@app.route("/whatsapp", methods=["POST"])
-def whatsapp_reply():
-    incoming_msg = request.values.get('Body', '').lower()
-    sender = request.values.get('From', '')
-    
-    logging.info(f"Message from {sender}: {incoming_msg}")
-    
-    resp = MessagingResponse()
-    msg = resp.message()
-    
-    # Command handling
-    if 'hi' in incoming_msg or 'hello' in incoming_msg:
-        msg.body("Hello! Welcome to our WhatsApp bot. Type 'Help' to see commands.")
-    elif 'help' in incoming_msg:
-        msg.body("Commands:\n1. Hi / Hello\n2. Info\n3. Contact")
-    elif 'info' in incoming_msg:
-        msg.body("This is a WhatsApp bot built with Flask. It runs on the cloud!")
-    elif 'contact' in incoming_msg:
-        msg.body("You can reach us at: +92-XXXXXXXXXX")
-    else:
-        msg.body("I received your message: " + incoming_msg + "\nType 'Help' to see commands.")
-    
-    return str(resp)
+# ---------------------------
+# Meta (Cloud API) Config
+# ---------------------------
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_verify_token")  
+# 👆 You can set this in Railway → Variables (make it match the token you set in Meta Developer Portal)
+
+# ---------------------------
+# Routes
+# ---------------------------
+
+@app.route("/")
+def home():
+    return "🚀 WhatsApp Bot is running!"
+
+# ---- Meta Cloud API Webhook Verification ----
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+    if request.method == "GET":  # Verification (Meta)
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            return challenge, 200
+        else:
+            return "❌ Verification failed", 403
+
+    elif request.method == "POST":  # Handle incoming messages (Twilio or Meta)
+        data = request.get_json(silent=True)
+
+        # ---------------------------
+        # Case 1: Twilio Incoming Message
+        # ---------------------------
+        if request.form:  
+            incoming_msg = request.form.get("Body", "").lower()
+            response = MessagingResponse()
+            msg = response.message()
+
+            if "hello" in incoming_msg:
+                msg.body("👋 Hello! How can I help you today?")
+            else:
+                msg.body("🤖 I'm a bot powered by Twilio + Flask!")
+
+            return str(response)
+
+        # ---------------------------
+        # Case 2: Meta Cloud API Incoming Message
+        # ---------------------------
+        if data and "entry" in data:
+            for entry in data["entry"]:
+                for change in entry.get("changes", []):
+                    value = change.get("value", {})
+                    messages = value.get("messages", [])
+                    for message in messages:
+                        from_number = message["from"]
+                        text = message.get("text", {}).get("body", "")
+
+                        # Example: reply using Twilio
+                        client.messages.create(
+                            from_=f"whatsapp:{TWILIO_WHATSAPP_NUMBER}",
+                            body=f"You said: {text}",
+                            to=f"whatsapp:{from_number}"
+                        )
+            return jsonify({"status": "received"}), 200
+
+        return "ok", 200
+
+# ---------------------------
+# Run app
+# ---------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
 
 if __name__ == "__main__":
     # Bind to 0.0.0.0 for cloud deployment
