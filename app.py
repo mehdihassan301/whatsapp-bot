@@ -1,70 +1,90 @@
 from flask import Flask, request
-import requests
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
 import os
 
 app = Flask(__name__)
 
 # ==============================
-# 🔑 WhatsApp Cloud API Settings
+# 🔑 Twilio Config
 # ==============================
-VERIFY_TOKEN = "probsolv_2025_secret"  # You choose this (must match Meta portal)
-WHATSAPP_ACCESS_TOKEN = "EAAKxZAvmtQpsBPfDKQl7lFeIKHy4XEZCQhiEXoXRbZAZCgTTYhe3ZBjEe3kUFEsZBoKoRZCRffFZBhvUOKW9rTaHahKGIwjf30ijBZA5ipnnFMSaLXb1VfmeR1nOa9zLxpKwspVU3nBeyr9bHZBrgrloCAk6ZARDYEggEUZCoFwfqj1by68znIaehQb3TSZAHZCNTLa5NRD7PzReERvpErEXlOBopjdnpjTLFkxupEvVQKXzKLH7W6HQZDZD"
-PHONE_NUMBER_ID = "768273019710136"
-RECIPIENT_WA_NUMBER = "923272583013"  # Your WhatsApp number
+# 👉 Get these from https://console.twilio.com/
+TWILIO_ACCOUNT_SID = "ACbb808dd2c5127739aef94eed7647cecf"  # your Account SID
+TWILIO_AUTH_TOKEN = "ce9a4ac094b68f5fb560e39884750239"             # your Auth Token
+TWILIO_WHATSAPP_NUMBER = "+14155238886"       # Twilio Sandbox or your purchased WhatsApp number
+
+client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+# ==============================
+# Simple User State
+# ==============================
+user_sessions = {}  
+
+# ==============================
+# Routes
 # ==============================
 
-@app.route("/webhook", methods=["GET", "POST"])
+@app.route("/")
+def home():
+    return "🚀 Twilio DocFiler Bot is running!"
+
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.method == "GET":
-        # Meta webhook verification
-        mode = request.args.get("hub.mode")
-        token = request.args.get("hub.verify_token")
-        challenge = request.args.get("hub.challenge")
+    """Handle incoming WhatsApp messages from Twilio"""
+    from_number = request.form.get("From", "")
+    incoming_msg = request.form.get("Body", "").strip()
+    response = MessagingResponse()
+    msg = response.message()
 
-        if mode == "subscribe" and token == VERIFY_TOKEN:
-            return challenge, 200
-        else:
-            return "Verification failed", 403
+    # Initialize session if new user
+    if from_number not in user_sessions:
+        user_sessions[from_number] = {"step": "name", "data": {}}
+        msg.body("👋 Welcome to *DocFiler*!\nLet’s auto-fill your document.\n\n👉 What’s your *full name*?")
+        return str(response)
 
-    if request.method == "POST":
-        data = request.get_json()
-        print("📩 Incoming:", data)
+    session = user_sessions[from_number]
 
-        # Extract message text (if exists)
-        try:
-            message = data["entry"][0]["changes"][0]["value"]["messages"][0]
-            from_number = message["from"]
-            msg_body = message["text"]["body"]
+    # Handle steps
+    if session["step"] == "name":
+        session["data"]["name"] = incoming_msg
+        session["step"] = "age"
+        msg.body("✅ Got it!\nNow, please enter your *age*.")
 
-            print(f"Message from {from_number}: {msg_body}")
+    elif session["step"] == "age":
+        session["data"]["age"] = incoming_msg
+        session["step"] = "address"
+        msg.body("✅ Thanks!\nPlease share your *address*.")
 
-            # Send reply
-            send_whatsapp_message(from_number, f"✅ I received your message: {msg_body}")
-        except Exception as e:
-            print("❌ Error handling message:", e)
+    elif session["step"] == "address":
+        session["data"]["address"] = incoming_msg
+        session["step"] = "done"
 
-        return "EVENT_RECEIVED", 200
+        # Example auto-filled document text
+        doc_text = (
+            "📄 *Auto-filled Document*\n\n"
+            f"👤 Name: {session['data']['name']}\n"
+            f"🎂 Age: {session['data']['age']}\n"
+            f"🏠 Address: {session['data']['address']}\n\n"
+            "✅ This info has been recorded by DocFiler."
+        )
+
+        msg.body(doc_text)
+
+        # Reset session
+        del user_sessions[from_number]
+
+    else:
+        msg.body("🤖 Something went wrong. Type *start* to begin again.")
+        user_sessions.pop(from_number, None)
+
+    return str(response)
 
 
-def send_whatsapp_message(to, message):
-    """Send WhatsApp message via Cloud API"""
-    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": to,
-        "text": {"body": message}
-    }
-
-    r = requests.post(url, headers=headers, json=payload)
-    print("📤 Sent reply:", r.status_code, r.text)
-
-
+# ==============================
+# Run app
+# ==============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
-
 
 
