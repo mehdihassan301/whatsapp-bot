@@ -1,9 +1,9 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
-import os
+from twilio.rest import Clients
+import flask
 
-app = Flask(__name__)
+app = Flask(app.py)
 
 # ==============================
 # 🔑 Twilio Config
@@ -29,7 +29,7 @@ def home():
     return "🚀 Twilio DocFiler Bot is running!"
 
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET"])
 def webhook():
     """Handle incoming WhatsApp messages from Twilio"""
     from_number = request.form.get("From", "")
